@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Aurora Serverless v1 MySQL
+
+Parameters:
+  ProjectName:
+    Description: Project Name
+    Type: String
+    Default: unnamed
+  Environment:
+    Description: Environment
+    Type: String
+    Default: dev
+    AllowedValues:
+      - prod
+      - dev
+  S3BucketName:
+    Description: Bucket name for static site
+    Type: String
+  DomainName:
+    Description: Alias for CloudFormation
+    Type: String
+
+Resources:
+  # ------------------------------------------------------------------------------------ #
+  # S3
+  # ------------------------------------------------------------------------------------ #
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: "BucketOwnerEnforced"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+            BucketKeyEnabled: false
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUpload
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+            Status: "Enabled"
+          - Id: NoncurrentVersionExpiration
+            NoncurrentVersionExpiration:
+              NewerNoncurrentVersions: 3
+              NoncurrentDays: 1
+            Status: Enabled
+  # Bucket Policy for CloudFront
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub arn:aws:s3:::${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}/*
+            Principal:
+              AWS: !Sub arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}
+
+
+  # ------------------------------------------------------------------------------------ #
+  # CloudFront
+  # ------------------------------------------------------------------------------------ #
+  CloudFrontDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        PriceClass: PriceClass_All
+        # Aliases:
+        # - !Ref DomainName
+        Origins:
+        - DomainName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}.s3.${AWS::Region}.amazonaws.com
+          Id: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
+          S3OriginConfig:
+            OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          TargetOriginId: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
+          Compress: true
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+          AllowedMethods:
+          - GET
+          - HEAD
+          CachedMethods:
+          - GET
+          - HEAD
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            QueryString: false
+        # ViewerCertificate:
+          # SslSupportMethod: sni-only
+          # MinimumProtocolVersion: TLSv1.2_2021
+          # AcmCertificateArn: !Sub "arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${CertificateId}"
+        HttpVersion: http2
+        PriceClass: PriceClass_All
+        IPV6Enabled: true
+        Enabled: true
+  # OAI
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Unique Domain Hosting Environment
