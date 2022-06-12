@@ -24,6 +24,7 @@ Resources:
   # ------------------------------------------------------------------------------------ #
   # S3
   # ------------------------------------------------------------------------------------ #
+  # Static site bucket
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -67,7 +68,6 @@ Resources:
             Principal:
               AWS: !Sub arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}
 
-
   # ------------------------------------------------------------------------------------ #
   # CloudFront
   # ------------------------------------------------------------------------------------ #
@@ -79,10 +79,10 @@ Resources:
         # Aliases:
         # - !Ref DomainName
         Origins:
-        - DomainName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}.s3.${AWS::Region}.amazonaws.com
-          Id: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
-          S3OriginConfig:
-            OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+          - DomainName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}.s3.${AWS::Region}.amazonaws.com
+            Id: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
         DefaultRootObject: index.html
         DefaultCacheBehavior:
           TargetOriginId: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
@@ -90,21 +90,23 @@ Resources:
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
           AllowedMethods:
-          - GET
-          - HEAD
+            - GET
+            - HEAD
           CachedMethods:
-          - GET
-          - HEAD
+            - GET
+            - HEAD
           ForwardedValues:
             Cookies:
               Forward: none
             QueryString: false
+        Logging:
+          Bucket: !GetAtt S3BucketLogs.DomainName
+          IncludeCookies: false
         # ViewerCertificate:
-          # SslSupportMethod: sni-only
-          # MinimumProtocolVersion: TLSv1.2_2021
-          # AcmCertificateArn: !Sub "arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${CertificateId}"
+        # SslSupportMethod: sni-only
+        # MinimumProtocolVersion: TLSv1.2_2021
+        # AcmCertificateArn: !Sub "arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${CertificateId}"
         HttpVersion: http2
-        PriceClass: PriceClass_All
         IPV6Enabled: true
         Enabled: true
   # OAI
@@ -113,3 +115,38 @@ Resources:
     Properties:
       CloudFrontOriginAccessIdentityConfig:
         Comment: Unique Domain Hosting Environment
+  # CloudFront log bucket
+  S3BucketLogs:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Environment}-${DomainName}-cfnlogs-${AWS::AccountId}
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: "ObjectWriter"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+            BucketKeyEnabled: false
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUpload
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+            Status: "Enabled"
+          - Id: CurrentVersionExpiration
+            ExpirationInDays: 180
+            Status: "Enabled"
+          - Id: NoncurrentVersionExpiration
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            Status: "Enabled"
