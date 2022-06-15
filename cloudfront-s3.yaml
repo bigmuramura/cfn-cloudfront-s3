@@ -16,9 +16,30 @@ Parameters:
   S3BucketName:
     Description: Bucket name for static site
     Type: String
-  DomainName:
-    Description: Alias for CloudFormation
+  AliasName:
+    Description: Alias for CloudFront
     Type: String
+  HostedZoneId:
+    Description: Route53 Host Zone ID
+    Type: String
+  CertificateId:
+    Description: ACM Certificate ID must be us-east-1 region
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Common Settings
+        Parameters:
+          - ProjectName
+          - Environment
+      - Label:
+          default: SSL Settings
+        Parameters:
+          - AliasName
+          - HostedZoneId
+          - CertificateId
 
 Resources:
   # ------------------------------------------------------------------------------------ #
@@ -76,8 +97,6 @@ Resources:
     Properties:
       DistributionConfig:
         PriceClass: PriceClass_All
-        # Aliases:
-        # - !Ref DomainName
         Origins:
           - DomainName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}.s3.${AWS::Region}.amazonaws.com
             Id: !Sub "S3origin-${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}"
@@ -102,10 +121,12 @@ Resources:
         Logging:
           Bucket: !GetAtt S3BucketLogs.DomainName
           IncludeCookies: false
-        # ViewerCertificate:
-        # SslSupportMethod: sni-only
-        # MinimumProtocolVersion: TLSv1.2_2021
-        # AcmCertificateArn: !Sub "arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${CertificateId}"
+        Aliases:
+          - !Ref AliasName
+        ViewerCertificate:
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+          AcmCertificateArn: !Sub "arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${CertificateId}"
         HttpVersion: http2
         IPV6Enabled: true
         Enabled: true
@@ -121,7 +142,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub ${ProjectName}-${Environment}-${DomainName}-cfnlogs-${AWS::AccountId}
+      BucketName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-cloudfrontlogs-${AWS::AccountId}
       OwnershipControls:
         Rules:
           - ObjectOwnership: "ObjectWriter"
@@ -150,3 +171,13 @@ Resources:
             NoncurrentVersionExpiration:
               NoncurrentDays: 30
             Status: "Enabled"
+  # Alias Record
+  Route53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Sub ${AliasName}
+      HostedZoneId: !Sub ${HostedZoneId}
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2 # fixed
